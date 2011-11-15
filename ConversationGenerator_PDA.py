@@ -1,15 +1,13 @@
 #TODO:
-#	-Prevent more [bkb] than characters in message
-#	-Add time
-#	-Adjust edge weights based on previous character
-#	-parse message stack and time stack in order to build convo half
 #	-Implement function for realistic sentence patterns
+
 
 
 
 import networkx as nx
 import random as random
 import math
+
 
 
 class ConvoPDA(nx.MultiDiGraph):
@@ -21,21 +19,36 @@ class ConvoPDA(nx.MultiDiGraph):
 		self.key = key
 		self.add_from_matrix(matrix, key)
 		
-		#every PDA needs a stack!  Ours has 3:
+		#username for current conversant
+		self.username = ""
+		
+		#every PDA only needs one stack ours has 3 (but it doesn't need to):
 		self.stack_conversation = []
 		self.stack_message = []
-		self.stack_time = []		
+		self.stack_time = []
+		
 		#iteration initializes to the first value in the key
 		self.curr = key[0]
 		
-		#random seed set to "" but we will allow other values?
-		self.seed = ""
+		#possible punctuation values
+		self.punctuation = ['.', ',', '!']
 		
 		#information about typing speed  http://web.archive.org/web/20060628012633/http://readi.info/TypingSpeed.pdf
 		self.typing_speed = .66 #characters per second (based on 40 wpm average, on length 5 words) 
 		
-	#matrix[i][j] is the weight of a directional edge from key[i] to key[j]
+	def reset(self):
+		self.stack_conversation = []
+		self.stack_message = []
+		self.stack_time = []
+		self.curr = self.key[0]
+		
+	def reset_for_user(self, username):
+		self.username = username
+		self.reset()
+		
+#region: graph creation --------------------------------------------------------
 	def add_from_matrix(self, matrix, key):
+		#matrix[i][j] is the weight of a directional edge from key[i] to key[j]
 		edges = []
 		nodes = key #just trying to be obvious.
 		for i in range(len(matrix)):
@@ -85,7 +98,7 @@ class ConvoPDA(nx.MultiDiGraph):
 			
 			if current_node[neighbor][0]['from'] == self.curr:
 				edges_out.append(neighbor)
-				edge_weights.append(int(current_node[neighbor][0]['weight']*1000))
+				edge_weights.append(int(current_node[neighbor][0]['weight']*100))
 		
 		#from http://stackoverflow.com/questions/3655430/selection-based-on-percentage-weighting
 		#select a random choice from a length 1000 array with the same distribution as the probabilities
@@ -96,21 +109,20 @@ class ConvoPDA(nx.MultiDiGraph):
 		choice = random.choice(picks)
 		
 		#if it's a word, generate a word of some length
-		#also generate a delay of appropriate length
-		delay = 0
+		#for a "word," spit the word up and add a delay for each letter
 		if self.curr == 'x':
 			self.curr = self.curr*self.generate_wordlen()
-			delay = self.generate_delay(len(self.curr))
+			for char in self.curr:
+				self.stack_message.append(char)
+				self.stack_time.append(self.generate_delay())
 		else:
-			delay = self.generate_delay()
-		#add the event and its assoc. time delay to the stack
-		self.stack_message.append(self.curr)
-		self.stack_time.append(delay)
+			self.stack_message.append(self.curr)
+			self.stack_time.append(self.generate_delay())
 		
 		self.curr = choice		
 		
 	
-#region: random methods ----------------------------------------------------------
+#region: random methods --------------------------------------------------------
 	def generate_wordlen(self):
 		return self.poisson_dist_length(3)
 	
@@ -134,13 +146,95 @@ class ConvoPDA(nx.MultiDiGraph):
 	def generate_delay(self, numchars=1):
 		delay = 0
 		for i in range(numchars):
-			delay += self.exponential_dist(self.typing_speed)
+			delay += round(self.exponential_dist(self.typing_speed), 2)
 		return delay
-			
-#region: stack to convo --------------------------------------------------------
-	def make_convo_string(self):
-		pass
 	
+	def choose_punctuation(self):
+		return random.choice(self.punctuation)
+			
+			
+#region: convo generation-------------------------------------------------------
+	def generate_convo_file(self, steps):
+		C.reset_for_user(self.username)
+		for i in range(steps):
+			self.step()
+		self.load_stack_convo()
+		self.print_stack()
+			
+	def load_stack_convo(self):
+		"""Loads the stack_conversation from the messages and timestamp stacks to
+		create a stack of events (essentially a text file without a username)"""
+		elapsed_time = 0
+		last_timestamp = 0
+		window_contents = ''
+		prev_keystroke = ''
+		for i in range(len(self.stack_message)):
+			#don't add every character to the conversation stack
+			event = False
+			#tick the clock
+			elapsed_time += self.stack_time[i]
+
+			#build the conversation based on what has been typed
+			keystroke = self.stack_message[i]
+			if keystroke == 'x':
+				window_contents += keystroke
+			elif keystroke == ' ':
+				window_contents += keystroke
+			elif keystroke == '[bkb]':
+				#don't delete if nothing to delete
+				if len(window_contents) > 0:
+					window_contents = window_contents[0:len(window_contents)-1]
+					event = True
+			elif keystroke == '[bka]':
+				event = True
+			elif keystroke == '[pnc]':
+				window_contents += self.choose_punctuation()
+			elif keystroke == '[snd]':
+				event = True
+			elif keystroke == '[pau]':
+				pass
+			elif keystroke == 'ST':
+				pass
+			else:
+				print "UNHANDLED EVENT", keystroke
+			
+			#each time the event flag is raised, append the window's contents to
+			#the conversation
+			if event:
+				self.stack_conversation.append((window_contents, elapsed_time, keystroke))
+			#check to see if a timestamp needs to happen!
+			elif elapsed_time - last_timestamp > .5:
+				self.stack_conversation.append((window_contents, elapsed_time, '[tim]'))
+				last_timestamp	= elapsed_time
+			#reset window contents on send
+			if keystroke == '[snd]':
+				window_contents = ''
+			
+			#update vars for next iteration
+			elapsed_time += self.stack_time[i]
+			prev_keystroke = keystroke
+
+	def print_stack(self):
+		f = open('files/User '+self.username+".txt", "w")
+		for contents,time,event in self.stack_conversation:
+			#print contents, time, event
+			#print self.username+", 2011-11-11 "+self.convert_seconds_date(time)+", "+event[1:-1]+", "+contents+"[end]"
+			f.write(self.username+", 2011-11-11 "+self.convert_seconds_date(time)+", "+event[1:-1]+", "+contents+"[end]\n")
+			
+	def convert_seconds_date(self, seconds):
+		floor = math.floor
+		date = seconds/60./60./24.
+		days = int(floor(date))
+		remainder = date - days
+		remainder*= 24
+		hours = int(floor(remainder))
+		remainder -= hours
+		remainder *= 60
+		minutes = int(floor(remainder))
+		remainder = remainder - minutes
+		remainder *= 60
+		seconds = round(remainder, 3)
+		return str(hours)+':'+str(minutes).zfill(2)+':'+str(seconds).zfill(2)
 
 
 #region: edge weight manipulation ----------------------------------------------
@@ -157,15 +251,17 @@ class ConvoPDA(nx.MultiDiGraph):
 
 #END OF CLASS ConvoPDA ---------------------------------------------------------
 if __name__ == "__main__":
-	nodes =  ['ST', 'x', ' ', '[bkb]', '[bka]', '[snd]']
-	
-	#	st 	x  ' '	 bb  ba	   sn	
-	matrix =[[0,   1,   0,   0,   0,  0    ], #st
-				[0,   0, .61, .27, 0,   .13   ], #x  
-				[0,   .50, .38, .09, 0,   .07  ], #' '
-				[0,   0,   0,   .55, .45, 0  ], #bb
-				[0,   .25, .25, .25, 0,	  .25  ], #ba
-				[1,   0,   0,   0,   0,	  0  ],]#snd
+	nodes =  ['ST', 'x', ' ', '[bkb]', '[bka]', '[pnc]', '[pau]','[snd]']
+
+	#			st 	x   ' '	 bb   ba	  pc  pa  sn	
+	matrix =[[0,   1,   0,   0,   0,   0,	0,	0    ], #st
+				[0,   0, .61, .22,   0, .05,	0,	.13  ], #x  
+				[0, .76, .09, .14,   0,   0,	0,	.17  ], #' '
+				[0,   0,   0, .55, .45,   0,	0,	0    ], #bb
+				[0, .30, .30, .20,   0,	.10,	0,	.10  ], #ba
+				[0,   0, .61, .30,   0,   0,	0,	.10  ], #pnc
+				[.15, 0,   0,   0,  0,	  0,.85,	0    ], #pa
+				[.15, 0,   0,   0,   0,	  0,.85,	0    ]]#snd
 		
 	#nodes = ['A', '|', 'C']
 	
@@ -175,16 +271,17 @@ if __name__ == "__main__":
 	#	  [0, 1, 0]]  #c
 	
 	
-	C = ConvoPDA(matrix, nodes)
-	#print C.nodes()
-	#print C.edges(None, True)
-	#print "---------------------------------------------------------------------------------------------------------------------------------------\n\n"
-	C.start_pda()
-
-	for i in range(1000):
-		C.step()
+	username_list = []
+	for i in range(10):
+		for gender in ["A","B"]:
+			username_list.append(gender+'_01_'+str(i)+'_01')
 	
-	#print what's on the stack
-	print '\n\n'
-	print ''.join(C.stack_message)
-	print '\n\n'
+	#create initial matrix
+	C = ConvoPDA(matrix, nodes)
+	C.start_pda()
+	
+	for user in username_list:
+		C.username = user
+		#30min*60sec/.66 average actions/second ~= 2727 actions
+		C.generate_convo_file(2727)
+
