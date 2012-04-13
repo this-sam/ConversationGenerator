@@ -257,7 +257,7 @@ class ConvoPDA(nx.MultiDiGraph):
 			prev_keystroke = keystroke
 
 	def print_stack(self):
-		f = open('files/User '+self.username+".txt", "w")
+		f = open('files/'+self.username+".txt", "w")
 		for contents,time,event in self.conversation_queue:
 			#print contents, time, event
 			#print self.username+", 2011-11-11 "+self.convert_seconds_date(time)+", "+event[1:-1]+", "+contents+"[end]"
@@ -312,7 +312,7 @@ if __name__ == "__main__":
 	#          [.33, .33], .34],#b
 	#	  		  [0, 1, 0]]  #c
 	
-	numConvos = 1000 #should be DIVISIBLE BY 2
+	numConvos = 100 #should be DIVISIBLE BY 2
 	numUsers = numConvos*2+(4-(numConvos*2)%4)
 	username_list = []
 	for i in range(numUsers/2):
@@ -324,7 +324,7 @@ if __name__ == "__main__":
 	C.start_pda()
 	
 	#write to the survey file
-	fHandle = open("Surveys.csv", 'w')
+	fHandle = open("files/Surveys.csv", 'w')
 	niceSurvey = ';"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"21"\n'
 	meanSurvey = ';"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"21"\n'
 	
