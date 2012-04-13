@@ -312,7 +312,7 @@ if __name__ == "__main__":
 	#          [.33, .33], .34],#b
 	#	  		  [0, 1, 0]]  #c
 	
-	numConvos = 10 #should be DIVISIBLE BY 2
+	numConvos = 1000 #should be DIVISIBLE BY 2
 	numUsers = numConvos*2+(4-(numConvos*2)%4)
 	username_list = []
 	for i in range(numUsers/2):
