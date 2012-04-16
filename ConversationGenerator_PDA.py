@@ -17,6 +17,7 @@ class ConvoPDA(nx.MultiDiGraph):
 		
 		#nodes, edges (key used to preserve order of nodes for easy initialization)
 		self.key = key
+		self.matrix = matrix
 		self.add_from_matrix(matrix, key)
 		
 		#username for current conversant
@@ -61,6 +62,23 @@ class ConvoPDA(nx.MultiDiGraph):
 		self.add_edges_from(edges)
 		self.key = key
 		
+		
+		
+	def weight_edges(self, sndWeight, pauWeight):
+		rowData  = []
+		try:
+			sndPos = self.key.indexof('[snd]')
+			pauPos = self.key.indexof('[pau]')
+		except Exception:
+			print "Either [snd] or [pau] was not found in the key."
+			return None
+		
+		
+		for row in self.matrix:
+			for i in range(len(row)-1):
+				rowData[i] = row[i]
+			print sum(rowData)
+
 
 #region: inherited methods -----------------------------------------------------
 	def add_edges_from(self, edges):
@@ -261,14 +279,14 @@ if __name__ == "__main__":
 				[0, .30, .30, .20,   0,	.10,	0,	.10  ], #ba
 				[0,   0, .61, .30,   0,   0,	0,	.10  ], #pnc
 				[.15, 0,   0,   0,  0,	  0,.85,	0    ], #pa
-				[.15, 0,   0,   0,   0,	  0,.85,	0    ]]#snd
+				[.15, 0,   0,   0,   0,	  0,.85,	0    ]] #snd
 		
 	#nodes = ['A', '|', 'C']
 	
 	#          a, b, c
 	#matrix = [[0, 5, 5],  #a
-	#          [.33, .33, .34],#b
-	#	  [0, 1, 0]]  #c
+	#          [.33, .33], .34],#b
+	#	  		  [0, 1, 0]]  #c
 	
 	
 	username_list = []
@@ -278,10 +296,11 @@ if __name__ == "__main__":
 	
 	#create initial matrix
 	C = ConvoPDA(matrix, nodes)
+	C.weight_edges(5,29)
 	C.start_pda()
 	
-	for user in username_list:
-		C.username = user
-		#30min*60sec/.66 average actions/second ~= 2727 actions
-		C.generate_convo_file(2727)
+	#for user in username_list:
+	#	C.username = user
+	#	#30min*60sec/.66 average actions/second ~= 2727 actions
+	#	C.generate_convo_file(2727)
 
