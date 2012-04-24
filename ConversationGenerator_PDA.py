@@ -1,14 +1,9 @@
-#TODO:
-#	-Implement function for realistic sentence patterns
-
-
-
-
 import networkx as nx
 import random as random
 import math
 
-
+global debug
+debug = False
 
 class ConvoPDA(nx.MultiDiGraph):
 	
@@ -23,10 +18,10 @@ class ConvoPDA(nx.MultiDiGraph):
 		#username for current conversant
 		self.username = ""
 		
-		#every PDA only needs one stack ours has 3 (but it doesn't need to):
-		self.stack_conversation = []
-		self.stack_message = []
-		self.stack_time = []
+		#every PDA has a stack... ours has 3 (but it doesn't need to):
+		self.conversation_queue = []
+		self.event_queue = []
+		self.time_delay_queue = []
 		
 		#iteration initializes to the first value in the key
 		self.curr = key[0]
@@ -38,9 +33,9 @@ class ConvoPDA(nx.MultiDiGraph):
 		self.typing_speed = .66 #characters per second (based on 40 wpm average, on length 5 words) 
 		
 	def reset(self):
-		self.stack_conversation = []
-		self.stack_message = []
-		self.stack_time = []
+		self.conversation_queue = []
+		self.event_queue = []
+		self.time_delay_queue = []
 		self.curr = self.key[0]
 		
 	def reset_for_user(self, username):
@@ -64,21 +59,50 @@ class ConvoPDA(nx.MultiDiGraph):
 		
 		
 		
-	def weight_edges(self, sndWeight, pauWeight):
-		rowData  = []
+	def weight_event(self, weight, event):
+		eventIndex = -1
+		
+		#make sure the event exists, and raise an exception if it does not
 		try:
-			sndPos = self.key.indexof('[snd]')
-			pauPos = self.key.indexof('[pau]')
+			for i in range(len(self.key)):
+				if (self.key[i] == event):
+					eventIndex = i
+					break
+			if eventIndex == -1:
+				raise Exception
+			
 		except Exception:
-			print "Either [snd] or [pau] was not found in the key."
-			return None
+			print "Event "+event+" was not found in the key."
 		
+		weightPct = (weight/100.0)
+		if debug: print "weightpct\t",weightPct
 		
-		for row in self.matrix:
-			for i in range(len(row)-1):
-				rowData[i] = row[i]
-			print sum(rowData)
 
+		#modify the weight of each edge based on the new weight of the event
+		for row in self.matrix:
+			#if weight is negative, the adjustment is a negative percent of its value
+			if weightPct < 0:
+				weightAdjustment = row[eventIndex]*weightPct
+			#if weight is positive, the adjustment is a postive percent of 1-its value
+			else:
+				weightAdjustment = (1-row[eventIndex])*weightPct
+			
+			row[eventIndex]+=weightAdjustment
+			#now modify each other weight to keep total row weight at 1
+			rowWeightRemaining = 1-row[eventIndex]
+			
+			runningTotal = 0
+			
+			for i in range(len(row)):
+				#don't re-modify the event we've already modified
+				if i != eventIndex:
+					row[i]=row[i]*rowWeightRemaining
+				if debug: print self.key[i],"\t",row[i]
+				runningTotal += row[i]
+			if debug: print "total:\t",runningTotal
+			runningTotal = 0
+				
+				
 
 #region: inherited methods -----------------------------------------------------
 	def add_edges_from(self, edges):
@@ -131,11 +155,11 @@ class ConvoPDA(nx.MultiDiGraph):
 		if self.curr == 'x':
 			self.curr = self.curr*self.generate_wordlen()
 			for char in self.curr:
-				self.stack_message.append(char)
-				self.stack_time.append(self.generate_delay())
+				self.event_queue.append(char)
+				self.time_delay_queue.append(self.generate_delay())
 		else:
-			self.stack_message.append(self.curr)
-			self.stack_time.append(self.generate_delay())
+			self.event_queue.append(self.curr)
+			self.time_delay_queue.append(self.generate_delay())
 		
 		self.curr = choice		
 		
@@ -180,20 +204,20 @@ class ConvoPDA(nx.MultiDiGraph):
 		self.print_stack()
 			
 	def load_stack_convo(self):
-		"""Loads the stack_conversation from the messages and timestamp stacks to
+		"""Loads the conversation_queue from the messages and timestamp stacks to
 		create a stack of events (essentially a text file without a username)"""
 		elapsed_time = 0
 		last_timestamp = 0
 		window_contents = ''
 		prev_keystroke = ''
-		for i in range(len(self.stack_message)):
+		for i in range(len(self.event_queue)):
 			#don't add every character to the conversation stack
 			event = False
 			#tick the clock
-			elapsed_time += self.stack_time[i]
+			elapsed_time += self.time_delay_queue[i]
 
 			#build the conversation based on what has been typed
-			keystroke = self.stack_message[i]
+			keystroke = self.event_queue[i]
 			if keystroke == 'x':
 				window_contents += keystroke
 			elif keystroke == ' ':
@@ -216,25 +240,25 @@ class ConvoPDA(nx.MultiDiGraph):
 			else:
 				print "UNHANDLED EVENT", keystroke
 			
-			#each time the event flag is raised, append the window's contents to
-			#the conversation
+			#each time the event flag is raised, append the window's contents to	  
+			#the conversation																		  
 			if event:
-				self.stack_conversation.append((window_contents, elapsed_time, keystroke))
+				self.conversation_queue.append((window_contents, elapsed_time, keystroke))
 			#check to see if a timestamp needs to happen!
 			elif elapsed_time - last_timestamp > .5:
-				self.stack_conversation.append((window_contents, elapsed_time, '[tim]'))
+				self.conversation_queue.append((window_contents, elapsed_time, '[tim]'))
 				last_timestamp	= elapsed_time
 			#reset window contents on send
 			if keystroke == '[snd]':
 				window_contents = ''
 			
 			#update vars for next iteration
-			elapsed_time += self.stack_time[i]
+			elapsed_time += self.time_delay_queue[i]
 			prev_keystroke = keystroke
 
 	def print_stack(self):
 		f = open('files/User '+self.username+".txt", "w")
-		for contents,time,event in self.stack_conversation:
+		for contents,time,event in self.conversation_queue:
 			#print contents, time, event
 			#print self.username+", 2011-11-11 "+self.convert_seconds_date(time)+", "+event[1:-1]+", "+contents+"[end]"
 			f.write(self.username+", 2011-11-11 "+self.convert_seconds_date(time)+", "+event[1:-1]+", "+contents+"[end]\n")
@@ -278,8 +302,8 @@ if __name__ == "__main__":
 				[0,   0,   0, .55, .45,   0,	0,	0    ], #bb
 				[0, .30, .30, .20,   0,	.10,	0,	.10  ], #ba
 				[0,   0, .61, .30,   0,   0,	0,	.10  ], #pnc
-				[.15, 0,   0,   0,  0,	  0,.85,	0    ], #pa
-				[.15, 0,   0,   0,   0,	  0,.85,	0    ]] #snd
+				[.08, 0,   0,   0,  0,	  0,.92,	0    ], #pa
+				[.01, 0,   0,   0,   0,	  0,.99,	0    ]] #snd
 		
 	#nodes = ['A', '|', 'C']
 	
@@ -288,19 +312,47 @@ if __name__ == "__main__":
 	#          [.33, .33], .34],#b
 	#	  		  [0, 1, 0]]  #c
 	
-	
+	numConvos = 10 #should be DIVISIBLE BY 2
+	numUsers = numConvos*2+(4-(numConvos*2)%4)
 	username_list = []
-	for i in range(10):
+	for i in range(numUsers/2):
 		for gender in ["A","B"]:
 			username_list.append(gender+'_01_'+str(i)+'_01')
 	
 	#create initial matrix
 	C = ConvoPDA(matrix, nodes)
-	C.weight_edges(5,29)
 	C.start_pda()
 	
-	#for user in username_list:
-	#	C.username = user
-	#	#30min*60sec/.66 average actions/second ~= 2727 actions
-	#	C.generate_convo_file(2727)
+	#write to the survey file
+	fHandle = open("Surveys.csv", 'w')
+	niceSurvey = ';"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"5";"21"\n'
+	meanSurvey = ';"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"1";"21"\n'
+	
+	
+	#first make some nice people (now just less pause and more send)
+	C.weight_event(-10,'[pau]')
+	C.weight_event(10, '[snd]')
+	for i in range(numUsers/2):
+		C.username = username_list[i]
+		#30min*60sec/.66 average actions/second ~= 2727 actions
+		C.generate_convo_file(2727)
+		C.reset()
+		fHandle.write("["+username_list[i]+"]"+niceSurvey)
+		
+	#now make some mean people (now just more pause and less send)
+	C.add_from_matrix(matrix, nodes)
+	C.reset()
+	C.start_pda()
+	C.weight_event(10,'[pau]')
+	C.weight_event(-10, '[snd]')
+	for i in range(numUsers/2, numUsers):
+		C.username = username_list[i]
+		#30min*60sec/.66 average actions/second ~= 2727 actions
+		C.generate_convo_file(2727)
+		C.reset()
+		fHandle.write("["+username_list[i]+"]"+meanSurvey)
+		
+	fHandle.close()
+		
+	
 
